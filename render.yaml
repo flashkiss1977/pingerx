@@ -12,5 +12,7 @@ services:
         value: "Y8140590601:AAGgnKId_EGK3sVNY_gx2gU0ZARSRm7ZjgY"
       - key: TELEGRAM_CHAT_ID
         value: "7504667715"
+      - key: RENDER_URL
+        value: "https://your-app-name.onrender.com" # Change to your actual Render URL
       - key: NODE_ENV
         value: "production"
