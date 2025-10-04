@@ -4,6 +4,9 @@ const bcrypt = require('bcryptjs');
 const session = require('express-session');
 const bodyParser = require('body-parser');
 const axios = require('axios');
+const path = require('path');
+require('dotenv').config();
+
 const { Config } = require('./config');
 
 class FlashKissPinger {
@@ -35,7 +38,6 @@ class FlashKissPinger {
             
         } catch (error) {
             console.error('Database connection failed:', error);
-            process.exit(1);
         }
     }
 
@@ -52,13 +54,15 @@ class FlashKissPinger {
         this.app.use(bodyParser.urlencoded({ extended: true }));
         this.app.use(bodyParser.json());
         this.app.use(session({
-            secret: 'flashkiss-secret-key',
+            secret: 'flashkiss-secret-key-change-in-production',
             resave: false,
             saveUninitialized: false,
             cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 }
         }));
-        this.app.use(express.static('public'));
+        
+        // Set EJS as templating engine
         this.app.set('view engine', 'ejs');
+        this.app.set('views', path.join(__dirname, 'views'));
         
         // Run background tasks on every request
         this.app.use(async (req, res, next) => {
@@ -76,13 +80,18 @@ class FlashKissPinger {
         this.app.post('/delete-site', this.handleDeleteSite.bind(this));
         this.app.post('/manual-scan', this.handleManualScan.bind(this));
         this.app.get('/async-scan', this.handleAsyncScan.bind(this));
+        
+        // Health check endpoint for Render
+        this.app.get('/health', (req, res) => {
+            res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+        });
     }
 
     // ==================== BACKGROUND TASKS ====================
 
     async runBackgroundTasks() {
         try {
-            // 1. Always ping Render to keep alive
+            // 1. Always ping Render to keep alive (but not on health checks to avoid loops)
             await this.pingRender();
             
             // 2. Check if it's time to scan sites (every 1 hour)
@@ -124,7 +133,7 @@ class FlashKissPinger {
     }
 
     runAsyncScan() {
-        const url = `${Config.render_url}?async_scan=1&key=${encodeURIComponent('yuu_is_gay')}`;
+        const url = `${Config.render_url}/async-scan?key=${encodeURIComponent('yuu_is_gay')}`;
         
         axios.get(url, { timeout: 1000 })
             .catch(error => {
@@ -138,19 +147,15 @@ class FlashKissPinger {
     // ==================== AUTHENTICATION ====================
 
     async login(password) {
-        // For compatibility with PHP password_verify
-        // In production, you should use a proper password comparison
-        const isValid = await bcrypt.compare(password, Config.admin_password_hash);
-        
-        if (isValid) {
-            this.app.locals.session = {
-                authenticated: true,
-                login_time: Date.now(),
-                session_id: require('crypto').randomBytes(16).toString('hex')
-            };
-            return true;
+        try {
+            // For PHP password_verify compatibility
+            // Note: You might need to rehash passwords for bcryptjs
+            const isValid = await bcrypt.compare(password, Config.admin_password_hash);
+            return isValid;
+        } catch (error) {
+            console.error('Login error:', error);
+            return false;
         }
-        return false;
     }
 
     logout(req) {
@@ -158,7 +163,7 @@ class FlashKissPinger {
     }
 
     isAuthenticated(req) {
-        return req.session.authenticated === true && req.session.session_id;
+        return req.session && req.session.authenticated === true && req.session.session_id;
     }
 
     // ==================== SITE MANAGEMENT ====================
@@ -189,10 +194,13 @@ class FlashKissPinger {
 
             const result = await this.sites.insertOne(site);
             
-            if (result.insertedCount > 0) {
+            if (result.insertedId) {
                 return { success: true, message: 'Site added successfully' };
             }
         } catch (error) {
+            if (error.code === 11000) {
+                return { success: false, message: 'Site already exists' };
+            }
             return { success: false, message: 'Database error: ' + error.message };
         }
 
@@ -269,6 +277,7 @@ class FlashKissPinger {
                 scanned_today
             };
         } catch (error) {
+            console.error('Error getting stats:', error);
             return { total_sites: 0, active_sites: 0, scanned_today: 0 };
         }
     }
@@ -290,6 +299,7 @@ class FlashKissPinger {
                     await this.sendAccessDeniedAlert(site.url);
                 }
 
+                // Small delay to avoid overwhelming servers
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
 
@@ -364,13 +374,17 @@ class FlashKissPinger {
                 last_status: result.status
             };
 
+            const updateOperation = {
+                $set: update_data
+            };
+
             if (result.success) {
-                update_data.$inc = { scan_count: 1 };
+                updateOperation.$inc = { scan_count: 1 };
             }
 
             await this.sites.updateOne(
                 { _id: siteId },
-                { $set: update_data }
+                updateOperation
             );
         } catch (error) {
             console.error('Error updating site after scan:', error);
@@ -457,18 +471,24 @@ class FlashKissPinger {
 
     async handleRoot(req, res) {
         if (this.isAuthenticated(req)) {
-            const stats = await this.getStats();
-            const sites = await this.getAllSites();
-            
-            res.render('dashboard', {
-                stats,
-                sites,
-                messages: req.session.messages,
-                errors: req.session.errors
-            });
-            
-            delete req.session.messages;
-            delete req.session.errors;
+            try {
+                const stats = await this.getStats();
+                const sites = await this.getAllSites();
+                
+                res.render('dashboard', {
+                    stats,
+                    sites,
+                    messages: req.session.messages || [],
+                    errors: req.session.errors || []
+                });
+                
+                // Clear flash messages after displaying
+                delete req.session.messages;
+                delete req.session.errors;
+            } catch (error) {
+                console.error('Error rendering dashboard:', error);
+                res.status(500).send('Internal Server Error');
+            }
         } else {
             res.render('login', { error: req.query.error });
         }
@@ -547,7 +567,7 @@ class FlashKissPinger {
     }
 
     async handleAsyncScan(req, res) {
-        if (req.query.async_scan && req.query.key === 'yuu_is_gay') {
+        if (req.query.key === 'yuu_is_gay') {
             await this.scanAllSites();
             res.send('Async scan completed');
         } else {
@@ -558,11 +578,12 @@ class FlashKissPinger {
     start() {
         this.app.listen(this.port, () => {
             console.log(`FlashKiss Pinger running on port ${this.port}`);
+            console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
         });
     }
 }
 
-// Start the application
+// Create and start the application
 const app = new FlashKissPinger();
 
 // Handle graceful shutdown
@@ -573,5 +594,18 @@ process.on('SIGINT', async () => {
     }
     process.exit(0);
 });
+
+process.on('SIGTERM', async () => {
+    console.log('Received SIGTERM, shutting down gracefully');
+    if (app.mongo) {
+        await app.mongo.close();
+    }
+    process.exit(0);
+});
+
+// Start the server after a brief delay to ensure DB connection
+setTimeout(() => {
+    app.start();
+}, 1000);
 
 module.exports = FlashKissPinger;
