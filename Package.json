@@ -1,0 +1,22 @@
+{
+  "name": "flashkiss-pinger",
+  "version": "1.0.0",
+  "description": "FlashKiss Security Monitor System",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongodb": "^5.8.1",
+    "axios": "^1.6.0",
+    "bcryptjs": "^2.4.3",
+    "express-session": "^1.17.3",
+    "body-parser": "^1.20.2",
+    "dotenv": "^16.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

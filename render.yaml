@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: flashkiss-pinger
+    env: node
+    plan: free
+    buildCommand: "npm install"
+    startCommand: "npm start"
+    envVars:
+      - key: MONGO_URI
+        value: "mongodb+srv://flashkiss:fuck.you@cluster0.875emw9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+      - key: TELEGRAM_BOT_TOKEN
+        value: "Y8140590601:AAGgnKId_EGK3sVNY_gx2gU0ZARSRm7ZjgY"
+      - key: TELEGRAM_CHAT_ID
+        value: "7504667715"
+      - key: NODE_ENV
+        value: "production"
