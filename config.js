@@ -13,7 +13,7 @@ class Config {
     // Note: You'll need to create a new hash for your password using bcrypt
     static admin_password_hash = process.env.ADMIN_PASSWORD_HASH || "$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi";
     
-    static render_url = process.env.RENDER_URL || "https://pingerx-lap5.onrender.com";
+    static render_url = process.env.RENDER_URL || "https://pingerx-1.onrender.com";
     static ping_interval = 3600; // 1 hour in seconds
     static render_ping_interval = 25; // 25 seconds
     
@@ -21,3 +21,4 @@ class Config {
 }
 
 module.exports = { Config };
+
